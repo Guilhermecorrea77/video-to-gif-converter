@@ -1,6 +1,9 @@
 import { RotateCcw } from 'lucide-react';
-import { DEFAULT_SETTINGS, PRESETS, type GifSettings } from '../lib/settings';
+import { DEFAULT_SETTINGS, PRESETS, STICKER, type GifSettings } from '../lib/settings';
+import { canEncodeWebP } from '../lib/webp';
 import { Hint, RangeField, Section, Segmented, cx } from './ui';
+
+const webpSupported = typeof document !== 'undefined' && canEncodeWebP();
 
 interface Props {
   settings: GifSettings;
@@ -29,8 +32,47 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
   const activePreset = PRESETS.find((p) => Object.entries(p.values).every(([k, v]) => s[k as keyof GifSettings] === v));
   const effects = [s.filter !== 'nenhum' && FILTERS.find((f) => f.value === s.filter)?.label, s.brightness !== 0 && 'brilho', s.contrast !== 0 && 'contraste'].filter(Boolean);
 
+  const sticker = s.output === 'sticker';
+
   return (
     <div className="divide-y divide-line">
+      <div className="px-5 py-4 space-y-3">
+        <Segmented
+          label="Salvar como"
+          value={s.output}
+          disabled={disabled}
+          onChange={(v) => onChange({ output: v })}
+          options={[
+            { value: 'gif', label: 'GIF' },
+            { value: 'sticker', label: 'Figurinha', title: 'Figurinha animada do WhatsApp (WebP 512×512)' },
+          ]}
+        />
+        {sticker && (
+          <>
+            {!webpSupported && (
+              <p role="alert" className="text-sm px-3 py-2 rounded-lg bg-danger/10 text-danger">
+                Este navegador não gera figurinhas (WebP). No iPhone, salve como GIF; no computador ou Android, use Chrome, Edge ou Firefox.
+              </p>
+            )}
+            <Segmented
+              label="Encaixe no quadrado"
+              value={s.stickerFit}
+              disabled={disabled}
+              onChange={(v) => onChange({ stickerFit: v })}
+              options={[
+                { value: 'cover', label: 'Cortar', title: 'Preenche o quadrado cortando as bordas' },
+                { value: 'contain', label: 'Inteiro', title: 'Mostra o vídeo inteiro com sobras transparentes' },
+              ]}
+            />
+            <Hint>
+              Figurinha animada do WhatsApp: {STICKER.size}×{STICKER.size} px, até {STICKER.maxSeconds} s e {STICKER.maxBytes / 1024} KB. A
+              qualidade é ajustada sozinha para caber.
+            </Hint>
+          </>
+        )}
+      </div>
+
+      {!sticker && (
       <div className="px-5 py-4">
         <div className="text-sm font-semibold text-ink mb-2">Ponto de partida</div>
         <div className="grid gap-1.5">
@@ -54,7 +96,21 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
           ))}
         </div>
       </div>
+      )}
 
+      {sticker ? (
+        <Section title="Fluidez" summary={`${Math.min(s.fps, STICKER.maxFps)} quadros/s`} defaultOpen>
+          <Segmented
+            label="Quadros por segundo"
+            value={Math.min(s.fps, STICKER.maxFps)}
+            disabled={disabled}
+            onChange={(v) => onChange({ fps: v })}
+            options={[8, 10, 12, 15].map((v) => ({ value: v, label: String(v) }))}
+          />
+          <Hint>Menos quadros deixam a figurinha mais leve e com melhor qualidade de imagem.</Hint>
+        </Section>
+      ) : (
+      <>
       <Section title="Tamanho e fluidez" summary={`${s.width} px de largura, ${s.fps} quadros/s, ${s.colors} cores`} defaultOpen>
         <Segmented
           label="Largura"
@@ -97,8 +153,10 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
         />
         <Hint>O corte é feito a partir do centro do vídeo.</Hint>
       </Section>
+      </>
+      )}
 
-      <Section title="Movimento" summary={`${String(s.speed).replace('.', ',')}×, ${s.direction === 'normal' ? 'normal' : s.direction === 'reverso' ? 'de trás para frente' : 'vai e volta'}, ${REPEATS.find((r) => r.value === s.repeat)?.label.toLowerCase()}`}>
+      <Section title="Movimento" summary={`${String(s.speed).replace('.', ',')}×, ${s.direction === 'normal' ? 'normal' : s.direction === 'reverso' ? 'de trás para frente' : 'vai e volta'}${sticker ? '' : `, ${REPEATS.find((r) => r.value === s.repeat)?.label.toLowerCase()}`}`}>
         <Segmented
           label="Velocidade"
           value={s.speed}
@@ -113,12 +171,12 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
           onChange={(v) => onChange({ direction: v })}
           options={[
             { value: 'normal', label: 'Normal' },
-            { value: 'reverso', label: 'Ao contrário' },
+            { value: 'reverso', label: 'Reverso', title: 'Toca de trás para frente' },
             { value: 'vaivem', label: 'Vai e volta' },
           ]}
         />
-        <Segmented label="Repetição" value={s.repeat} disabled={disabled} onChange={(v) => onChange({ repeat: v })} options={REPEATS} />
-        <Hint>A prévia mostra a velocidade; a direção é aplicada ao gerar o GIF.</Hint>
+        {!sticker && <Segmented label="Repetição" value={s.repeat} disabled={disabled} onChange={(v) => onChange({ repeat: v })} options={REPEATS} />}
+        <Hint>A prévia mostra a velocidade; a direção é aplicada ao gerar.{sticker ? ' Figurinhas sempre repetem.' : ''}</Hint>
       </Section>
 
       <Section title="Efeitos" summary={effects.length ? effects.join(', ') : 'Nenhum efeito'}>

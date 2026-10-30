@@ -3,8 +3,14 @@ export type Aspect = 'original' | '1:1' | '4:5' | '9:16' | '16:9';
 export type Filter = 'nenhum' | 'pb' | 'sepia' | 'vibrante' | 'retro' | 'negativo';
 export type Direction = 'normal' | 'reverso' | 'vaivem';
 export type TextPosition = 'top' | 'bottom';
+export type Output = 'gif' | 'sticker';
+export type StickerFit = 'cover' | 'contain';
 
 export interface GifSettings {
+  /** GIF comum ou figurinha animada do WhatsApp (WebP 512×512) */
+  output: Output;
+  /** cover = corta em quadrado; contain = vídeo inteiro com sobras transparentes */
+  stickerFit: StickerFit;
   fps: number;
   width: number;
   colors: number;
@@ -23,6 +29,8 @@ export interface GifSettings {
 }
 
 export const DEFAULT_SETTINGS: GifSettings = {
+  output: 'gif',
+  stickerFit: 'cover',
   fps: 12,
   width: 480,
   colors: 256,
@@ -45,6 +53,14 @@ export const PRESETS: { id: string; label: string; hint: string; values: Partial
   { id: 'equilibrado', label: 'Equilibrado', hint: 'Bom para a maioria dos usos', values: { fps: 12, width: 480, colors: 256 } },
   { id: 'qualidade', label: 'Alta qualidade', hint: 'Mais fluido, arquivo maior', values: { fps: 20, width: 640, colors: 256 } },
 ];
+
+/** Regras do WhatsApp para figurinha animada */
+export const STICKER = {
+  size: 512,
+  maxBytes: 500 * 1024,
+  maxSeconds: 10,
+  maxFps: 15,
+};
 
 export const LIMITS = {
   /** Acima disso o navegador do celular costuma travar por falta de memória */
@@ -73,8 +89,11 @@ export function saveSettings(s: GifSettings) {
   }
 }
 
+/** Quadros por segundo efetivos (a figurinha usa no máximo 15 para caber em 500 KB). */
+export const effectiveFps = (s: Pick<GifSettings, 'fps' | 'output'>) => (s.output === 'sticker' ? Math.min(s.fps, STICKER.maxFps) : s.fps);
+
 /** Quantos quadros saem do trecho escolhido, já considerando velocidade e direção. */
-export function frameCount(segmentSeconds: number, s: Pick<GifSettings, 'fps' | 'speed' | 'direction'>) {
-  const base = Math.max(1, Math.floor((segmentSeconds / s.speed) * s.fps));
+export function frameCount(segmentSeconds: number, s: Pick<GifSettings, 'fps' | 'speed' | 'direction' | 'output'>) {
+  const base = Math.max(1, Math.floor((segmentSeconds / s.speed) * effectiveFps(s)));
   return s.direction === 'vaivem' ? Math.max(1, base * 2 - 2) : base;
 }

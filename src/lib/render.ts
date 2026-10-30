@@ -16,6 +16,12 @@ export interface Layout {
   /** tamanho final do GIF */
   width: number;
   height: number;
+  /** onde o vídeo é desenhado dentro do quadro (só difere quando sobra espaço transparente) */
+  dx: number;
+  dy: number;
+  dw: number;
+  dh: number;
+  transparent: boolean;
 }
 
 /** Calcula o enquadramento e o tamanho final. Nunca amplia além do vídeo original. */
@@ -33,7 +39,29 @@ export function computeLayout(videoW: number, videoH: number, s: Pick<GifSetting
   }
   const width = Math.max(2, Math.min(s.width, sw));
   const height = Math.max(2, Math.round((sh * width) / sw));
-  return { sx, sy, sw, sh, width, height };
+  return { sx, sy, sw, sh, width, height, dx: 0, dy: 0, dw: width, dh: height, transparent: false };
+}
+
+/** Figurinha: sempre 512×512. "cover" corta em quadrado; "contain" mostra o vídeo inteiro com sobras transparentes. */
+export function stickerLayout(videoW: number, videoH: number, fit: GifSettings['stickerFit'], size = 512): Layout {
+  if (fit === 'cover') {
+    const side = Math.min(videoW, videoH);
+    return {
+      sx: Math.round((videoW - side) / 2), sy: Math.round((videoH - side) / 2), sw: side, sh: side,
+      width: size, height: size, dx: 0, dy: 0, dw: size, dh: size, transparent: false,
+    };
+  }
+  const scale = size / Math.max(videoW, videoH);
+  const dw = Math.round(videoW * scale), dh = Math.round(videoH * scale);
+  return {
+    sx: 0, sy: 0, sw: videoW, sh: videoH,
+    width: size, height: size, dx: Math.round((size - dw) / 2), dy: Math.round((size - dh) / 2), dw, dh, transparent: true,
+  };
+}
+
+/** Enquadramento conforme o tipo de saída escolhido. */
+export function layoutFor(videoW: number, videoH: number, s: GifSettings): Layout {
+  return s.output === 'sticker' ? stickerLayout(videoW, videoH, s.stickerFit) : computeLayout(videoW, videoH, s);
 }
 
 const clamp = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : v);
@@ -143,7 +171,8 @@ function isLight(hex: string) {
 
 /** Desenha um quadro completo (enquadramento + filtros + legenda). Usado na prévia e na conversão. */
 export function renderFrame(ctx: CanvasRenderingContext2D, source: CanvasImageSource, layout: Layout, s: GifSettings) {
-  ctx.drawImage(source, layout.sx, layout.sy, layout.sw, layout.sh, 0, 0, layout.width, layout.height);
+  if (layout.transparent) ctx.clearRect(0, 0, layout.width, layout.height);
+  ctx.drawImage(source, layout.sx, layout.sy, layout.sw, layout.sh, layout.dx, layout.dy, layout.dw, layout.dh);
   if (s.filter !== 'nenhum' || s.brightness !== 0 || s.contrast !== 0) {
     const img = ctx.getImageData(0, 0, layout.width, layout.height);
     applyPixelEffects(img.data, s);

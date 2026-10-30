@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Download, PencilLine, Share2, Trash2 } from 'lucide-react';
 import { formatBytes } from '../lib/format';
+import { STICKER } from '../lib/settings';
 
 export interface GifItem {
   id: string;
@@ -12,6 +13,9 @@ export interface GifItem {
   frames: number;
   seconds: number;
   createdAt: number;
+  kind: 'gif' | 'sticker';
+  /** figurinha que, mesmo no mínimo de qualidade, passou de 500 KB */
+  overLimit?: boolean;
 }
 
 const HEAVY = 8 * 1024 * 1024;
@@ -19,7 +23,7 @@ const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: 
 
 function canShareFiles(blob: Blob, name: string) {
   try {
-    const file = new File([blob], name, { type: 'image/gif' });
+    const file = new File([blob], name, { type: blob.type });
     return typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
   } catch {
     return false;
@@ -30,10 +34,11 @@ function canShareFiles(blob: Blob, name: string) {
 export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) {
   const [shared, setShared] = useState(false);
   const shareable = canShareFiles(item.blob, item.fileName);
+  const sticker = item.kind === 'sticker';
 
   const share = async () => {
     try {
-      await navigator.share({ files: [new File([item.blob], item.fileName, { type: 'image/gif' })], title: item.fileName });
+      await navigator.share({ files: [new File([item.blob], item.fileName, { type: item.blob.type })], title: item.fileName });
       setShared(true);
     } catch {
       /* a pessoa fechou a janela de compartilhar */
@@ -43,12 +48,12 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
   return (
     <section aria-labelledby="result-title" className="space-y-4">
       <div className="stage rounded-2xl p-3 sm:p-4 grid place-items-center">
-        <img src={item.url} alt={`GIF gerado a partir de ${item.fileName}`} className="checker block max-w-full max-h-[52vh] w-auto h-auto rounded-md" />
+        <img src={item.url} alt={`${sticker ? 'Figurinha gerada' : 'GIF gerado'}: ${item.fileName}`} className={`checker block max-w-full max-h-[52vh] w-auto h-auto ${sticker ? 'rounded-xl' : 'rounded-md'}`} />
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="min-w-0 flex-1">
-          <h2 id="result-title" className="font-display font-bold text-xl text-ink">Seu GIF está pronto</h2>
+          <h2 id="result-title" className="font-display font-bold text-xl text-ink">{sticker ? 'Sua figurinha está pronta' : 'Seu GIF está pronto'}</h2>
           <dl className="mt-1 grid grid-cols-2 sm:flex sm:flex-wrap gap-x-5 gap-y-1 text-sm">
             <Stat label="Tamanho" value={formatBytes(item.blob.size)} />
             <Stat label="Dimensões" value={`${item.width} × ${item.height}`} />
@@ -58,7 +63,7 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
         </div>
         <div className="flex flex-wrap gap-2">
           <a href={item.url} download={item.fileName} className="btn btn-primary">
-            <Download className="w-4 h-4" aria-hidden /> Baixar GIF
+            <Download className="w-4 h-4" aria-hidden /> {sticker ? 'Baixar figurinha' : 'Baixar GIF'}
           </a>
           {shareable && (
             <button type="button" onClick={share} className="btn btn-secondary">
@@ -71,7 +76,27 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
         </div>
       </div>
 
-      {isTouch && (
+      {sticker && (
+        <div className={`text-sm px-4 py-3 rounded-lg border ${item.overLimit ? 'bg-danger/10 border-danger/30 text-danger' : 'bg-white border-line text-muted'}`}>
+          {item.overLimit ? (
+            <p>
+              <strong>Passou de {STICKER.maxBytes / 1024} KB</strong> mesmo na menor qualidade, e o WhatsApp recusa figurinhas maiores. Encurte o
+              trecho, use menos quadros por segundo ou tire a legenda e os efeitos.
+            </p>
+          ) : (
+            <>
+              <p>
+                <strong className="text-ink">Como usar no WhatsApp:</strong> o criador de figurinhas do próprio WhatsApp só faz figurinhas
+                paradas. Para a animada, importe este arquivo num app de pacotes de figurinhas (como o Sticker.ly) e adicione o pacote ao
+                WhatsApp pelo botão <strong className="text-ink">+</strong> da bandeja de figurinhas.
+              </p>
+              <p className="mt-1.5">Se o app escolhido não aceitar WebP, gere a versão GIF e use-a no lugar.</p>
+            </>
+          )}
+        </div>
+      )}
+
+      {!sticker && isTouch && (
         <p className="text-sm px-4 py-3 rounded-lg bg-white border border-line text-muted">
           <strong className="text-ink">GIF parado no celular?</strong> O arquivo é animado, mas algumas galerias mostram só a
           primeira imagem até você abrir o GIF, e alguns apps de mensagem o enviam como foto. No WhatsApp, anexe pelo
@@ -79,7 +104,7 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
         </p>
       )}
 
-      {item.blob.size > HEAVY && (
+      {!sticker && item.blob.size > HEAVY && (
         <p className="text-sm px-4 py-3 rounded-lg bg-highlight/25 text-ink">
           Arquivo grande ({formatBytes(item.blob.size)}). Para deixar mais leve, diminua a largura, os quadros por segundo ou as cores — ou use o ponto de partida “WhatsApp”.
         </p>

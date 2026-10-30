@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pause, Play, SkipBack, X } from 'lucide-react';
-import { computeLayout, renderFrame } from '../lib/render';
+import { layoutFor, renderFrame } from '../lib/render';
 import type { GifSettings } from '../lib/settings';
 import { formatTime, makeThumbnails } from '../lib/format';
 import { cx } from './ui';
@@ -34,7 +34,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
   const [thumbs, setThumbs] = useState<string[]>([]);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
 
-  const layout = useMemo(() => (dims ? computeLayout(dims.w, dims.h, settings) : null), [dims, settings.aspect, settings.width]); // eslint-disable-line react-hooks/exhaustive-deps
+  const layout = useMemo(() => (dims ? layoutFor(dims.w, dims.h, settings) : null), [dims, settings.aspect, settings.width, settings.output, settings.stickerFit]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Miniaturas da linha do tempo (em segundo plano)
   useEffect(() => {
@@ -50,7 +50,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
   const draw = useCallback(() => {
     const v = videoRef.current, c = canvasRef.current;
     if (!v || !c || !v.videoWidth || v.readyState < 2) return;
-    const l = computeLayout(v.videoWidth, v.videoHeight, settingsRef.current);
+    const l = layoutFor(v.videoWidth, v.videoHeight, settingsRef.current);
     if (c.width !== l.width || c.height !== l.height) {
       c.width = l.width;
       c.height = l.height;
@@ -201,7 +201,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
         />
         <canvas
           ref={canvasRef}
-          className="block max-w-full max-h-[52vh] w-auto h-auto rounded-md shadow-[0_10px_40px_rgba(0,0,0,.45)]"
+          className={cx('block max-w-full max-h-[52vh] w-auto h-auto shadow-[0_10px_40px_rgba(0,0,0,.45)]', settings.output === 'sticker' ? 'checker rounded-xl' : 'rounded-md')}
           aria-label="Prévia do GIF"
           role="img"
         />

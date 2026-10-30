@@ -4,9 +4,9 @@ import { DropZone } from './components/DropZone';
 import { Editor } from './components/Editor';
 import { SettingsPanel } from './components/SettingsPanel';
 import { History, Result, type GifItem } from './components/Result';
-import { CancelledError, convertVideoToGif, createHiddenVideo, waitForMetadata } from './lib/convert';
+import { CancelledError, convertVideoToGif, convertVideoToSticker, createHiddenVideo, waitForMetadata } from './lib/convert';
 import { baseName, formatBytes, formatTime, isVideoFile } from './lib/format';
-import { LIMITS, frameCount, loadSettings, saveSettings, type GifSettings } from './lib/settings';
+import { LIMITS, STICKER, effectiveFps, frameCount, loadSettings, saveSettings, type GifSettings } from './lib/settings';
 
 interface Source {
   file: File;
@@ -108,7 +108,10 @@ export default function App() {
   const segment = Math.max(0, end - start);
   const frames = frameCount(segment, settings);
   const sourceFrames = frameCount(segment, { ...settings, direction: 'normal' });
-  const tooLong = sourceFrames > LIMITS.maxFrames;
+  const isSticker = settings.output === 'sticker';
+  const outSeconds = frames / effectiveFps(settings);
+  const stickerTooLong = isSticker && outSeconds > STICKER.maxSeconds + 0.01;
+  const tooLong = sourceFrames > LIMITS.maxFrames || stickerTooLong;
 
   const convert = async () => {
     if (!source || busy || tooLong) return;
@@ -126,15 +129,19 @@ export default function App() {
       });
     }
     try {
-      const r = await convertVideoToGif(source.file, start, end, settings, (p) => {
+      const onP = (p: { value: number; phase: 'lendo' | 'montando' }) => {
         setProgress(p.value);
         setPhase(p.phase);
-      }, ac.signal);
+      };
+      const r = isSticker
+        ? await convertVideoToSticker(source.file, start, end, settings, onP, ac.signal)
+        : await convertVideoToGif(source.file, start, end, settings, onP, ac.signal);
 
-      const base = baseName(source.file.name);
+      const base = baseName(source.file.name) + (isSticker ? '-figurinha' : '');
+      const ext = isSticker ? 'webp' : 'gif';
       const taken = new Set(history.map((h) => h.fileName));
-      let fileName = `${base}.gif`;
-      for (let n = 2; taken.has(fileName); n++) fileName = `${base}-${n}.gif`;
+      let fileName = `${base}.${ext}`;
+      for (let n = 2; taken.has(fileName); n++) fileName = `${base}-${n}.${ext}`;
 
       const item: GifItem = {
         id: crypto.randomUUID?.() ?? String(Date.now()),
@@ -146,6 +153,8 @@ export default function App() {
         frames: r.frames,
         seconds: r.seconds,
         createdAt: Date.now(),
+        kind: isSticker ? 'sticker' : 'gif',
+        overLimit: 'overLimit' in r ? Boolean(r.overLimit) : false,
       };
       setHistory((h) => [item, ...h]);
       setCurrentId(item.id);
@@ -253,7 +262,7 @@ export default function App() {
                   settings={settings}
                   busy={busy}
                   progress={progress}
-                  progressLabel={phase === 'lendo' ? 'Lendo os quadros do vídeo…' : 'Montando o GIF…'}
+                  progressLabel={phase === 'lendo' ? 'Lendo os quadros do vídeo…' : isSticker ? 'Montando a figurinha…' : 'Montando o GIF…'}
                   onCancel={() => abortRef.current?.abort()}
                 />
               )}
@@ -269,15 +278,15 @@ export default function App() {
               <div className="fixed lg:static inset-x-0 bottom-0 z-30 bg-white border-t border-line px-4 sm:px-5 py-3 flex items-center gap-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
                 <div className="min-w-0 flex-1 text-sm leading-tight">
                   <p className={tooLong ? 'text-danger font-semibold' : 'text-ink font-semibold tabular-nums'}>
-                    {tooLong ? `Trecho longo demais (${sourceFrames} quadros)` : `${frames} quadros`}
+                    {stickerTooLong ? `Figurinha longa demais (${outSeconds.toFixed(1).replace('.', ',')} s)` : tooLong ? `Trecho longo demais (${sourceFrames} quadros)` : `${frames} quadros`}
                   </p>
                   <p className="text-muted tabular-nums">
-                    {tooLong ? `Máximo ${LIMITS.maxFrames}: encurte o trecho ou reduza os quadros/s` : `${(frames / settings.fps).toFixed(1).replace('.', ',')} s de GIF`}
+                    {stickerTooLong ? `Máximo ${STICKER.maxSeconds} s: encurte o trecho ou acelere` : tooLong ? `Máximo ${LIMITS.maxFrames}: encurte o trecho ou reduza os quadros/s` : `${outSeconds.toFixed(1).replace('.', ',')} s de ${isSticker ? 'figurinha' : 'GIF'}`}
                   </p>
                 </div>
                 <button type="button" onClick={convert} disabled={busy || tooLong} className="btn btn-primary btn-lg shrink-0">
                   {busy ? <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> : <Sparkles className="w-4 h-4" aria-hidden />}
-                  {busy ? 'Gerando…' : view === 'result' ? 'Gerar de novo' : 'Gerar GIF'}
+                  {busy ? 'Gerando…' : view === 'result' ? 'Gerar de novo' : isSticker ? 'Gerar figurinha' : 'Gerar GIF'}
                 </button>
               </div>
             </aside>

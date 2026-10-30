@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+/* ---------- Tokens ----------
+   Mesa de montagem: papel frio, tinta azul-marinho, cobalto para ação
+   e amarelo-marca-texto só para o trecho selecionado. */
+@theme {
+  --color-paper: #eef0f3;
+  --color-ink: #16202c;
+  --color-muted: #566273;
+  --color-line: #d6dbe2;
+  --color-accent: #2443d6;
+  --color-accent-dark: #1a33a8;
+  --color-highlight: #ffc933;
+  --color-ok: #1f8a4c;
+  --color-danger: #c2312e;
+
+  --font-sans: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Bricolage Grotesque", "Atkinson Hyperlegible", system-ui, sans-serif;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  :where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 3px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  button:disabled { cursor: not-allowed; }
+  input::placeholder, textarea::placeholder { color: #8b95a3; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
+    height: 2.75rem; padding: 0 1.125rem; border-radius: .75rem;
+    font-weight: 700; font-size: .9375rem; white-space: nowrap;
+    border: 1px solid transparent;
+    transition: background-color .15s, border-color .15s, color .15s, transform .08s;
+  }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; }
+  .btn-sm { height: 2.25rem; padding: 0 .75rem; font-size: .875rem; border-radius: .625rem; }
+  .btn-lg { height: 3rem; padding: 0 1.375rem; font-size: 1rem; }
+  .btn-primary { background: var(--color-accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--color-accent-dark); }
+  .btn-secondary { background: #fff; color: var(--color-ink); border-color: var(--color-line); }
+  .btn-secondary:hover:not(:disabled) { border-color: var(--color-muted); }
+  .btn-ghost { background: transparent; color: var(--color-ink); }
+  .btn-ghost:hover:not(:disabled) { background: rgb(22 32 44 / .06); }
+  .btn-on-dark { background: rgb(255 255 255 / .12); color: #fff; border-color: rgb(255 255 255 / .25); height: 2.5rem; }
+  .btn-on-dark:hover { background: rgb(255 255 255 / .2); }
+
+  .icon-btn {
+    display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: .5rem;
+    color: var(--color-muted);
+  }
+  .icon-btn:hover { background: rgb(22 32 44 / .06); color: var(--color-ink); }
+
+  .skip-link {
+    position: absolute; left: 1rem; top: -4rem; z-index: 60;
+    background: var(--color-ink); color: #fff; padding: .5rem 1rem; border-radius: .5rem; font-weight: 700;
+  }
+  .skip-link:focus { top: .75rem; }
+
+  /* Palco escuro onde a prévia aparece */
+  .stage {
+    background:
+      radial-gradient(120% 90% at 50% 0%, #22303f 0%, var(--color-ink) 70%);
+  }
+
+  /* Fundo xadrez: mostra que o GIF não tem fundo próprio além do vídeo */
+  .checker {
+    background-color: #fff;
+    background-image:
+      linear-gradient(45deg, #e6e9ee 25%, transparent 25%),
+      linear-gradient(-45deg, #e6e9ee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #e6e9ee 75%),
+      linear-gradient(-45deg, transparent 75%, #e6e9ee 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+  }
+
+  /* Área de envio desenhada como um pedaço de filme, com as perfurações nas bordas */
+  .filmstrip {
+    position: relative;
+    border-radius: 1.25rem;
+    background: var(--color-ink);
+    padding: 26px 0;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .filmstrip::before, .filmstrip::after {
+    content: ''; position: absolute; left: 14px; right: 14px; height: 12px;
+    background-image: linear-gradient(90deg, var(--color-paper) 0 14px, transparent 14px 28px);
+    background-size: 28px 12px;
+    opacity: .9;
+  }
+  .filmstrip::before { top: 7px; }
+  .filmstrip::after { bottom: 7px; }
+  .filmstrip-inner {
+    margin: 0 10px; border-radius: .5rem;
+    background: radial-gradient(100% 120% at 50% 0%, #2a3a4c 0%, #1b2734 80%);
+    border: 1px dashed rgb(255 255 255 / .22);
+  }
+  .filmstrip:hover, .filmstrip.is-over { box-shadow: 0 0 0 4px rgb(255 201 51 / .55); }
+  .filmstrip.is-over { transform: scale(1.01); }
+
+  .timeline { background: var(--color-ink); }
+  .handle { box-shadow: 0 0 0 1px rgb(0 0 0 / .25); }
+  .handle:focus-visible { outline: 3px solid #fff; outline-offset: -3px; }
+
+  /* Controle deslizante */
+  .range { appearance: none; height: 1.5rem; background: transparent; }
+  .range::-webkit-slider-runnable-track { height: 6px; border-radius: 999px; background: var(--color-line); }
+  .range::-moz-range-track { height: 6px; border-radius: 999px; background: var(--color-line); }
+  .range::-webkit-slider-thumb { appearance: none; width: 20px; height: 20px; margin-top: -7px; border-radius: 50%; background: var(--color-accent); border: 3px solid #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); }
+  .range::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--color-accent); border: 3px solid #fff; box-shadow: 0 1px 3px rgb(0 0 0 / .3); }
+  .range:disabled { opacity: .5; }
+}

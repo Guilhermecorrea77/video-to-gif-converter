@@ -1,0 +1,5 @@
+{
+  "name": "Vídeo para GIF",
+  "description": "Converta trechos de vídeo em GIFs animados direto no navegador, com corte, legenda, filtros, velocidade e vai e volta.",
+  "requestFramePermissions": []
+}

@@ -15,6 +15,7 @@ export interface GifItem {
 }
 
 const HEAVY = 8 * 1024 * 1024;
+const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
 function canShareFiles(blob: Blob, name: string) {
   try {
@@ -69,6 +70,14 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
           </button>
         </div>
       </div>
+
+      {isTouch && (
+        <p className="text-sm px-4 py-3 rounded-lg bg-white border border-line text-muted">
+          <strong className="text-ink">GIF parado no celular?</strong> O arquivo é animado, mas algumas galerias mostram só a
+          primeira imagem até você abrir o GIF, e alguns apps de mensagem o enviam como foto. No WhatsApp, anexe pelo
+          botão <strong className="text-ink">Documento</strong> para o arquivo chegar intacto.
+        </p>
+      )}
 
       {item.blob.size > HEAVY && (
         <p className="text-sm px-4 py-3 rounded-lg bg-highlight/25 text-ink">

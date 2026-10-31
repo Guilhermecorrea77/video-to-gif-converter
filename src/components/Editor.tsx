@@ -3,11 +3,11 @@ import { Pause, Play, SkipBack, X } from 'lucide-react';
 import { layoutFor, renderFrame } from '../lib/render';
 import type { GifSettings } from '../lib/settings';
 import { formatTime, makeThumbnails } from '../lib/format';
+import { frameAt, frameThumbnails, type Source } from '../lib/source';
 import { cx } from './ui';
 
 interface Props {
-  url: string;
-  duration: number;
+  source: Source;
   start: number;
   end: number;
   onTrim: (start: number, end: number) => void;
@@ -25,14 +25,20 @@ const THUMBS = 10;
  * Prévia ao vivo (já com enquadramento, filtros e legenda) e linha do tempo
  * com miniaturas e alças para escolher o trecho.
  */
-export function Editor({ url, duration, start, end, onTrim, settings, busy, progress, progressLabel, onCancel }: Props) {
+export function Editor({ source, start, end, onTrim, settings, busy, progress, progressLabel, onCancel }: Props) {
+  const duration = source.duration;
+  const isVideo = source.kind === 'video';
+  const url = isVideo ? source.url : '';
+  const still = source.kind === 'frames' && !source.animated;
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Relógio para animações já decodificadas (GIF/WebP): faz o papel do <video>
+  const clock = useRef({ t: start, playing: false, last: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(start);
   const [thumbs, setThumbs] = useState<string[]>([]);
-  const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
+  const [dims, setDims] = useState<{ w: number; h: number } | null>(isVideo ? null : { w: source.width, h: source.height });
 
   const layout = useMemo(() => (dims ? layoutFor(dims.w, dims.h, settings) : null), [dims, settings.aspect, settings.width, settings.output, settings.stickerFit]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -40,61 +46,98 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
   useEffect(() => {
     const ac = new AbortController();
     setThumbs([]);
-    makeThumbnails(url, THUMBS, 56, ac.signal).then((t) => !ac.signal.aborted && setThumbs(t));
+    if (source.kind === 'video') makeThumbnails(source.url, THUMBS, 56, ac.signal).then((t) => !ac.signal.aborted && setThumbs(t));
+    else if (source.animated) setThumbs(frameThumbnails(source, THUMBS));
     return () => ac.abort();
-  }, [url]);
+  }, [source]);
+
+  // Abstrai vídeo e animação: tempo atual, buscar, imagem a desenhar
+  const getTime = useCallback(() => {
+    if (source.kind === 'video') return videoRef.current?.currentTime ?? 0;
+    const c = clock.current;
+    if (c.playing) {
+      const now = performance.now();
+      c.t += ((now - c.last) / 1000) * settingsRef.current.speed;
+      c.last = now;
+    }
+    return c.t;
+  }, [source]);
+  const currentImage = useCallback((): CanvasImageSource | null => {
+    if (source.kind === 'video') {
+      const v = videoRef.current;
+      return v && v.videoWidth && v.readyState >= 2 ? v : null;
+    }
+    return frameAt(source, clock.current.t);
+  }, [source]);
 
   // Desenha o quadro atual na prévia
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const draw = useCallback(() => {
-    const v = videoRef.current, c = canvasRef.current;
-    if (!v || !c || !v.videoWidth || v.readyState < 2) return;
-    const l = layoutFor(v.videoWidth, v.videoHeight, settingsRef.current);
+    const img = currentImage(), c = canvasRef.current;
+    if (!img || !c) return;
+    const w = source.kind === 'video' ? videoRef.current!.videoWidth : source.width;
+    const h = source.kind === 'video' ? videoRef.current!.videoHeight : source.height;
+    const l = layoutFor(w, h, settingsRef.current);
     if (c.width !== l.width || c.height !== l.height) {
       c.width = l.width;
       c.height = l.height;
     }
     const ctx = c.getContext('2d', { willReadFrequently: true });
-    if (ctx) renderFrame(ctx, v, l, settingsRef.current);
-  }, []);
+    if (ctx) renderFrame(ctx, img, l, settingsRef.current);
+  }, [currentImage, source]);
 
   useEffect(draw, [settings, draw]);
 
   // Laço de reprodução: fica dentro do trecho escolhido
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
-    v.playbackRate = settings.speed;
+    if (v) v.playbackRate = settings.speed;
     let raf = 0;
     const tick = () => {
-      if (v.currentTime >= end - 0.02 || v.currentTime < start - 0.05) v.currentTime = start;
-      setTime(v.currentTime);
+      const t = getTime();
+      if (t >= end - 0.02 || t < start - 0.05) {
+        if (v) v.currentTime = start;
+        else clock.current.t = start;
+      }
+      setTime(getTime());
       draw();
       raf = requestAnimationFrame(tick);
     };
     if (playing) raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, start, end, settings.speed, draw]);
+  }, [playing, start, end, settings.speed, draw, getTime]);
 
   useEffect(() => {
     if (busy) {
       videoRef.current?.pause();
+      clock.current.playing = false;
       setPlaying(false);
     }
   }, [busy]);
 
   const seek = useCallback((t: number) => {
-    const v = videoRef.current;
-    if (!v) return;
     const clamped = Math.max(0, Math.min(duration, t));
-    v.currentTime = clamped;
+    if (videoRef.current) videoRef.current.currentTime = clamped;
+    else {
+      clock.current.t = clamped;
+      clock.current.last = performance.now();
+      draw();
+    }
     setTime(clamped);
-  }, [duration]);
+  }, [duration, draw]);
 
   const togglePlay = useCallback(() => {
+    if (busy || still) return;
     const v = videoRef.current;
-    if (!v || busy) return;
+    if (!v) {
+      const c = clock.current;
+      if (!c.playing && (c.t < start || c.t >= end - 0.02)) c.t = start;
+      c.playing = !c.playing;
+      c.last = performance.now();
+      setPlaying(c.playing);
+      return;
+    }
     if (v.paused) {
       if (v.currentTime < start || v.currentTime >= end - 0.02) v.currentTime = start;
       v.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
@@ -102,7 +145,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
       v.pause();
       setPlaying(false);
     }
-  }, [busy, start, end]);
+  }, [busy, start, end, still]);
 
   const markIn = useCallback(() => onTrim(Math.min(time, end - MIN_GAP), end), [time, end, onTrim]);
   const markOut = useCallback(() => onTrim(start, Math.max(time, start + MIN_GAP)), [time, start, onTrim]);
@@ -111,7 +154,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement;
-      if (busy || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (busy || still || e.ctrlKey || e.metaKey || e.altKey) return;
       if (el.closest('input, textarea, select, [contenteditable], [role=slider]')) return;
       if (e.key === ' ' && !el.closest('button, summary, a')) {
         e.preventDefault();
@@ -121,7 +164,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [busy, togglePlay, markIn, markOut]);
+  }, [busy, still, togglePlay, markIn, markOut]);
 
   // ---------- Arrastar alças / clicar na trilha ----------
   const timeAt = (clientX: number) => {
@@ -181,7 +224,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
     <div className="space-y-4">
       {/* Palco com a prévia */}
       <div className="stage relative rounded-2xl overflow-hidden grid place-items-center min-h-[220px] sm:min-h-[320px] p-3 sm:p-4">
-        <video
+        {isVideo && (<video
           ref={videoRef}
           src={url}
           muted
@@ -198,11 +241,11 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
           onSeeked={() => !playing && draw()}
           onLoadedData={draw}
           onPause={() => setPlaying(false)}
-        />
+        />)}
         <canvas
           ref={canvasRef}
           className={cx('block max-w-full max-h-[52vh] w-auto h-auto shadow-[0_10px_40px_rgba(0,0,0,.45)]', settings.output === 'sticker' ? 'checker rounded-xl' : 'rounded-md')}
-          aria-label="Prévia do GIF"
+          aria-label="Prévia"
           role="img"
         />
 
@@ -222,6 +265,13 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
         )}
       </div>
 
+      {still && (
+        <p className="text-sm text-muted">
+          Imagem parada{layout ? `: sai com ${layout.width} × ${layout.height} px` : ''}. Como figurinha, vira uma figurinha estática (até 100 KB).
+        </p>
+      )}
+
+      {!still && (<>
       {/* Controles de reprodução */}
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={togglePlay} disabled={busy} className="btn btn-secondary w-11 px-0" aria-label={playing ? 'Pausar' : 'Tocar o trecho'}>
@@ -302,6 +352,7 @@ export function Editor({ url, duration, start, end, onTrim, settings, busy, prog
           Arraste as alças amarelas ou use as setas do teclado nelas (Shift = 1 s). Espaço toca o trecho, I e O marcam início e fim.
         </p>
       </div>
+      </>)}
     </div>
   );
 }

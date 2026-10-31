@@ -1,9 +1,9 @@
 {
-  "name": "video-to-gif-converter",
+  "name": "fabrica-de-figurinhas",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
-  "description": "Converta vídeos curtos em GIFs animados direto no navegador, sem enviar nada para servidores.",
+  "description": "Transforme vídeo, GIF ou foto em figurinha do WhatsApp ou em GIF, direto no navegador.",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "tsc --noEmit && vite build",
@@ -13,6 +13,7 @@
   "dependencies": {
     "gifenc": "^1.0.3",
     "lucide-react": "^0.546.0",
+    "omggif": "^1.0.10",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

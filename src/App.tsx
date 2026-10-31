@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Film, FolderOpen, Loader2, Sparkles } from 'lucide-react';
+import { FolderOpen, Loader2, Sparkles, Sticker } from 'lucide-react';
 import { DropZone } from './components/DropZone';
 import { Editor } from './components/Editor';
 import { SettingsPanel } from './components/SettingsPanel';
 import { History, Result, type GifItem } from './components/Result';
-import { CancelledError, convertVideoToGif, convertVideoToSticker, createHiddenVideo, waitForMetadata } from './lib/convert';
-import { baseName, formatBytes, formatTime, isVideoFile } from './lib/format';
+import { CancelledError, convertToGif, convertToSticker } from './lib/convert';
+import { baseName, formatBytes, formatTime } from './lib/format';
+import { ACCEPT, isSupportedFile, loadSource, releaseSource, type Source } from './lib/source';
+import { canEncodeWebP } from './lib/webp';
 import { LIMITS, STICKER, effectiveFps, frameCount, loadSettings, saveSettings, type GifSettings } from './lib/settings';
 
-interface Source {
-  file: File;
-  url: string;
-  duration: number;
-  width: number;
-  height: number;
-}
-
-/** Trecho inicial sugerido: GIFs costumam ter poucos segundos */
+/** Trecho inicial sugerido: figurinhas têm no máximo 10 s */
 const DEFAULT_SEGMENT = 6;
+export const APP_NAME = 'Fábrica de Figurinhas';
 
 export default function App() {
   const [source, setSource] = useState<Source | null>(null);
   const [loadingFile, setLoadingFile] = useState(false);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
-  const [settings, setSettings] = useState<GifSettings>(loadSettings);
+  // Sem WebP (Safari do iPhone) a figurinha não sai: começa em GIF
+  const [settings, setSettings] = useState<GifSettings>(() => {
+    const s = loadSettings();
+    return s.output === 'sticker' && !canEncodeWebP() ? { ...s, output: 'gif' } : s;
+  });
   const [view, setView] = useState<'edit' | 'result'>('edit');
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -41,33 +40,26 @@ export default function App() {
   const historyRef = useRef(history);
   historyRef.current = history;
   useEffect(() => () => historyRef.current.forEach((h) => URL.revokeObjectURL(h.url)), []);
-  useEffect(() => () => {
-    if (source) URL.revokeObjectURL(source.url);
-  }, [source]);
+  useEffect(() => () => releaseSource(source), [source]);
 
   const openFile = useCallback(async (file: File) => {
-    if (!isVideoFile(file)) {
-      setError(`“${file.name}” não parece ser um vídeo. Escolha um arquivo MP4, MOV ou WebM.`);
+    if (!isSupportedFile(file)) {
+      setError(`“${file.name}” não é um formato aceito. Use vídeo (MP4, MOV, WebM), GIF, WebP, PNG ou JPG.`);
       return;
     }
     abortRef.current?.abort();
     setError(null);
     setLoadingFile(true);
-    const url = URL.createObjectURL(file);
-    const probe = createHiddenVideo(url);
     try {
-      await waitForMetadata(probe);
-      const duration = probe.duration;
-      if (!isFinite(duration) || duration <= 0) throw new Error('Não foi possível ler a duração deste vídeo. Tente outro arquivo.');
-      setSource({ file, url, duration, width: probe.videoWidth, height: probe.videoHeight });
+      const src = await loadSource(file);
+      setSource(src);
       setStart(0);
-      setEnd(Math.min(duration, DEFAULT_SEGMENT));
+      // GIF/figurinha curtos entram inteiros; vídeos começam com os primeiros segundos
+      setEnd(src.kind === 'video' ? Math.min(src.duration, DEFAULT_SEGMENT) : Math.min(src.duration, STICKER.maxSeconds));
       setView('edit');
     } catch (e) {
-      URL.revokeObjectURL(url);
-      setError(e instanceof Error ? e.message : 'Não foi possível abrir este vídeo.');
+      setError(e instanceof Error ? e.message : 'Não foi possível abrir este arquivo.');
     } finally {
-      probe.remove();
       setLoadingFile(false);
     }
   }, []);
@@ -75,7 +67,7 @@ export default function App() {
   // Colar (Ctrl+V) ou soltar um vídeo em qualquer lugar da página
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
-      const f = Array.from(e.clipboardData?.files || []).find(isVideoFile);
+      const f = Array.from(e.clipboardData?.files || []).find(isSupportedFile);
       if (f && !busy) openFile(f);
     };
     const onDragOver = (e: DragEvent) => e.preventDefault();
@@ -105,12 +97,13 @@ export default function App() {
     setView('edit');
   }, []);
 
-  const segment = Math.max(0, end - start);
+  const still = source?.kind === 'frames' && !source.animated;
+  const segment = still ? 0 : Math.max(0, end - start);
   const frames = frameCount(segment, settings);
   const sourceFrames = frameCount(segment, { ...settings, direction: 'normal' });
   const isSticker = settings.output === 'sticker';
   const outSeconds = frames / effectiveFps(settings);
-  const stickerTooLong = isSticker && outSeconds > STICKER.maxSeconds + 0.01;
+  const stickerTooLong = !still && isSticker && outSeconds > STICKER.maxSeconds + 0.01;
   const tooLong = sourceFrames > LIMITS.maxFrames || stickerTooLong;
 
   const convert = async () => {
@@ -134,8 +127,8 @@ export default function App() {
         setPhase(p.phase);
       };
       const r = isSticker
-        ? await convertVideoToSticker(source.file, start, end, settings, onP, ac.signal)
-        : await convertVideoToGif(source.file, start, end, settings, onP, ac.signal);
+        ? await convertToSticker(source, start, end, settings, onP, ac.signal)
+        : await convertToGif(source, start, end, settings, onP, ac.signal);
 
       const base = baseName(source.file.name) + (isSticker ? '-figurinha' : '');
       const ext = isSticker ? 'webp' : 'gif';
@@ -155,6 +148,7 @@ export default function App() {
         createdAt: Date.now(),
         kind: isSticker ? 'sticker' : 'gif',
         overLimit: 'overLimit' in r ? Boolean(r.overLimit) : false,
+        animated: 'animated' in r ? Boolean(r.animated) : r.frames > 1,
       };
       setHistory((h) => [item, ...h]);
       setCurrentId(item.id);
@@ -191,7 +185,7 @@ export default function App() {
     <input
       ref={fileInputRef}
       type="file"
-      accept="video/*,.mov,.mkv"
+      accept={ACCEPT}
       className="sr-only"
       tabIndex={-1}
       onChange={(e) => {
@@ -208,15 +202,15 @@ export default function App() {
 
       <header className="border-b border-line bg-white/70 backdrop-blur sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
-          <button type="button" onClick={() => !busy && setSource(null)} className="flex items-center gap-2 font-display font-bold text-ink text-lg" aria-label="Vídeo para GIF — início">
+          <button type="button" onClick={() => !busy && setSource(null)} className="flex items-center gap-2 font-display font-bold text-ink text-lg whitespace-nowrap min-w-0" aria-label={`${APP_NAME}: início`}>
             <span className="w-8 h-8 rounded-lg bg-ink grid place-items-center">
-              <Film className="w-4 h-4 text-highlight" aria-hidden />
+              <Sticker className="w-4 h-4 text-highlight" aria-hidden />
             </span>
-            Vídeo para GIF
+            {APP_NAME}
           </button>
           {source && (
-            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy} className="btn btn-ghost btn-sm ml-auto">
-              <FolderOpen className="w-4 h-4" aria-hidden /> Trocar vídeo
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={busy} className="btn btn-ghost btn-sm ml-auto shrink-0" aria-label="Trocar arquivo">
+              <FolderOpen className="w-4 h-4" aria-hidden /> <span className="hidden sm:inline">Trocar arquivo</span>
             </button>
           )}
           {fileInput}
@@ -228,7 +222,7 @@ export default function App() {
           <>
             {loadingFile ? (
               <p role="status" className="flex items-center gap-2 text-muted">
-                <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> Abrindo o vídeo…
+                <Loader2 className="w-4 h-4 animate-spin" aria-hidden /> Abrindo o arquivo…
               </p>
             ) : (
               <DropZone onFile={openFile} error={error} />
@@ -242,7 +236,8 @@ export default function App() {
                   {source.file.name}
                 </h1>
                 <p className="text-sm text-muted tabular-nums">
-                  {formatBytes(source.file.size)}, {source.width} × {source.height}, {formatTime(source.duration, false)}
+                  {formatBytes(source.file.size)}, {source.width} × {source.height}
+                  {still ? ', imagem parada' : `, ${formatTime(source.duration, false)}${source.kind === 'frames' ? ` (${source.frames.length} quadros)` : ''}`}
                 </p>
               </div>
 
@@ -254,34 +249,34 @@ export default function App() {
                 <Result key={current.id} item={current} onEdit={() => setView('edit')} />
               ) : (
                 <Editor
-                  url={source.url}
-                  duration={source.duration}
+                  key={source.file.name + source.file.size + source.file.lastModified}
+                  source={source}
                   start={start}
                   end={end}
                   onTrim={onTrim}
                   settings={settings}
                   busy={busy}
                   progress={progress}
-                  progressLabel={phase === 'lendo' ? 'Lendo os quadros do vídeo…' : isSticker ? 'Montando a figurinha…' : 'Montando o GIF…'}
+                  progressLabel={phase === 'lendo' ? 'Lendo os quadros…' : isSticker ? 'Montando a figurinha…' : 'Montando o GIF…'}
                   onCancel={() => abortRef.current?.abort()}
                 />
               )}
             </div>
 
-            <aside aria-label="Ajustes do GIF" className="panel lg:sticky lg:top-20 rounded-2xl bg-white border border-line overflow-hidden">
+            <aside aria-label="Ajustes" className="panel lg:sticky lg:top-20 rounded-2xl bg-white border border-line overflow-hidden">
               <div className="px-5 pt-5 pb-1">
                 <h2 className="font-display font-bold text-lg text-ink">Ajustes</h2>
               </div>
-              <SettingsPanel settings={settings} onChange={updateSettings} disabled={busy} />
+              <SettingsPanel settings={settings} onChange={updateSettings} disabled={busy} still={still} />
 
               {/* Barra de ação: fixa no rodapé no celular, dentro do painel no computador */}
               <div className="fixed lg:static inset-x-0 bottom-0 z-30 bg-white border-t border-line px-4 sm:px-5 py-3 flex items-center gap-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}>
                 <div className="min-w-0 flex-1 text-sm leading-tight">
                   <p className={tooLong ? 'text-danger font-semibold' : 'text-ink font-semibold tabular-nums'}>
-                    {stickerTooLong ? `Figurinha longa demais (${outSeconds.toFixed(1).replace('.', ',')} s)` : tooLong ? `Trecho longo demais (${sourceFrames} quadros)` : `${frames} quadros`}
+                    {still ? (isSticker ? 'Figurinha estática' : 'GIF de 1 quadro') : stickerTooLong ? `Figurinha longa demais (${outSeconds.toFixed(1).replace('.', ',')} s)` : tooLong ? `Trecho longo demais (${sourceFrames} quadros)` : `${frames} quadros`}
                   </p>
                   <p className="text-muted tabular-nums">
-                    {stickerTooLong ? `Máximo ${STICKER.maxSeconds} s: encurte o trecho ou acelere` : tooLong ? `Máximo ${LIMITS.maxFrames}: encurte o trecho ou reduza os quadros/s` : `${outSeconds.toFixed(1).replace('.', ',')} s de ${isSticker ? 'figurinha' : 'GIF'}`}
+                    {still ? `${isSticker ? 'Até 100 KB' : 'Imagem parada'}` : stickerTooLong ? `Máximo ${STICKER.maxSeconds} s: encurte o trecho ou acelere` : tooLong ? `Máximo ${LIMITS.maxFrames}: encurte o trecho ou reduza os quadros/s` : `${outSeconds.toFixed(1).replace('.', ',')} s de ${isSticker ? 'figurinha' : 'GIF'}`}
                   </p>
                 </div>
                 <button type="button" onClick={convert} disabled={busy || tooLong} className="btn btn-primary btn-lg shrink-0">
@@ -298,7 +293,7 @@ export default function App() {
 
       <footer className={`border-t border-line text-sm text-muted ${source ? 'pb-24 lg:pb-0' : ''}`}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-5 flex flex-col sm:flex-row gap-2 justify-between">
-          <p>Tudo é processado no seu aparelho. Nenhum vídeo é enviado para a internet.</p>
+          <p>Tudo é processado no seu aparelho. Nenhum arquivo é enviado para a internet.</p>
           <a className="underline hover:text-ink" href="https://github.com/Guilhermecorrea77/video-to-gif-converter" target="_blank" rel="noreferrer">
             Código no GitHub
           </a>

@@ -1,6 +1,7 @@
 import { layoutFor, renderFrame, type Layout } from './render';
 import { LIMITS, STICKER, effectiveFps, frameCount, type GifSettings } from './settings';
 import { buildAnimatedWebP, canEncodeWebP, canvasToWebP } from './webp';
+import { frameAt, type Source } from './source';
 import type { WorkerIn, WorkerOut } from '../workers/gif.worker';
 
 export interface ConvertResult {
@@ -137,7 +138,7 @@ export function seekTo(video: HTMLVideoElement, time: number, waitFrame = false)
 }
 
 export interface ReadOptions {
-  file: File;
+  source: Source;
   start: number;
   end: number;
   settings: GifSettings;
@@ -156,8 +157,9 @@ export interface ReadOptions {
  * toca o trecho e captura os quadros enquanto ele passa.
  */
 export async function readFrames(o: ReadOptions): Promise<{ layout: Layout; frames: number }> {
+  if (o.source.kind === 'frames') return readDecodedFrames(o, o.source);
   const { settings, signal } = o;
-  const url = URL.createObjectURL(o.file);
+  const url = URL.createObjectURL(o.source.file);
   const video = createHiddenVideo(url);
   try {
     await waitForMetadata(video);
@@ -241,11 +243,45 @@ export async function readFrames(o: ReadOptions): Promise<{ layout: Layout; fram
   }
 }
 
+/** GIF, WebP animado ou foto já decodificados: basta escolher o quadro de cada instante. */
+async function readDecodedFrames(o: ReadOptions, src: Extract<Source, { kind: 'frames' }>) {
+  const { settings, signal } = o;
+  const layout = layoutFor(src.width, src.height, settings);
+  const canvas = document.createElement('canvas');
+  canvas.width = layout.width;
+  canvas.height = layout.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('Seu navegador não permitiu desenhar os quadros (canvas indisponível).');
+
+  let total = 1;
+  let targetTime = (_i: number) => 0;
+  if (src.animated) {
+    const s0 = Math.max(0, o.start);
+    const s1 = Math.min(src.duration, o.end);
+    if (!(s1 - s0 > 0)) throw new Error('Escolha um trecho com pelo menos 0,1 s.');
+    total = frameCount(s1 - s0, { ...settings, direction: 'normal' });
+    if (total > LIMITS.maxFrames) {
+      throw new Error(`Esse trecho geraria ${total} quadros (o limite é ${LIMITS.maxFrames}). Encurte o trecho ou reduza os quadros por segundo.`);
+    }
+    const step = settings.speed / effectiveFps(settings);
+    targetTime = (i) => Math.min(s1 - 0.001, s0 + i * step);
+  }
+
+  for (let i = 0; i < total; i++) {
+    if (signal.aborted) throw new CancelledError();
+    renderFrame(ctx, frameAt(src, targetTime(i)), layout, settings);
+    await o.onFrame(canvas, ctx.getImageData(0, 0, layout.width, layout.height));
+    o.onProgress((i + 1) / total);
+    if (i % 8 === 7) await new Promise((r) => setTimeout(r)); // deixa a tela respirar
+  }
+  return { layout, frames: total };
+}
+
 // ---------------------------------------------------------------------------
 // GIF
 // ---------------------------------------------------------------------------
-export async function convertVideoToGif(
-  file: File,
+export async function convertToGif(
+  source: Source,
   start: number,
   end: number,
   settings: GifSettings,
@@ -298,7 +334,7 @@ export async function convertVideoToGif(
 
   try {
     const { layout } = await readFrames({
-      file, start, end, settings, signal,
+      source, start, end, settings, signal,
       onFrame: async (_canvas, data) => {
         if (!initialized) init(data.width, data.height);
         send({ type: 'frame', buffer: data.data.buffer }, [data.data.buffer]);
@@ -341,6 +377,8 @@ export interface StickerResult extends ConvertResult {
   /** true se mesmo no mínimo de qualidade passou de 500 KB */
   overLimit: boolean;
   quality: number;
+  /** false = figurinha estática (foto) */
+  animated: boolean;
 }
 
 /** Ordem final dos quadros conforme a direção escolhida. */
@@ -355,8 +393,8 @@ function durationsMs(count: number, fps: number) {
   return Array.from({ length: count }, (_, i) => Math.round(((i + 1) * 1000) / fps) - Math.round((i * 1000) / fps));
 }
 
-export async function convertVideoToSticker(
-  file: File,
+export async function convertToSticker(
+  source: Source,
   start: number,
   end: number,
   settings: GifSettings,
@@ -371,7 +409,7 @@ export async function convertVideoToSticker(
   // 1ª passada: guarda cada quadro em WebP de alta qualidade (ocupa pouca memória)
   let masters: Blob[] = [];
   const { layout } = await readFrames({
-    file, start, end, settings, signal,
+    source, start, end, settings, signal,
     onFrame: async (canvas) => {
       masters.push(await canvasToWebP(canvas, 0.92));
     },
@@ -380,6 +418,23 @@ export async function convertVideoToSticker(
     },
     onProgress: (v) => onProgress({ phase: 'lendo', value: v * 0.7 }),
   });
+
+  // Imagem parada: figurinha estática (WebP simples, até 100 KB)
+  if (masters.length === 1) {
+    const bm = await createImageBitmap(masters[0]);
+    const c = document.createElement('canvas');
+    c.width = layout.width;
+    c.height = layout.height;
+    c.getContext('2d')!.drawImage(bm, 0, 0);
+    bm.close();
+    let blob = masters[0];
+    for (const q of [0.9, 0.8, 0.7, 0.55, 0.4, 0.3, 0.2]) {
+      blob = await canvasToWebP(c, q);
+      if (blob.size <= STICKER.maxStaticBytes) break;
+    }
+    onProgress({ phase: 'montando', value: 1 });
+    return { blob, width: layout.width, height: layout.height, frames: 1, seconds: 0, overLimit: blob.size > STICKER.maxStaticBytes, quality: 0, animated: false };
+  }
 
   const ordered = orderFrames(masters, settings.direction);
   if (ordered.length / fps > STICKER.maxSeconds + 0.01) {
@@ -440,6 +495,7 @@ export async function convertVideoToSticker(
     frames: best!.frames,
     seconds: best!.seconds,
     overLimit: best!.blob.size > STICKER.maxBytes,
+    animated: true,
     quality: best!.quality,
   };
 }

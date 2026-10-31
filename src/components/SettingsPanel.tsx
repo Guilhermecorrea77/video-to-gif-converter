@@ -9,6 +9,8 @@ interface Props {
   settings: GifSettings;
   onChange: (patch: Partial<GifSettings>) => void;
   disabled: boolean;
+  /** imagem parada: sem fluidez nem movimento */
+  still?: boolean;
 }
 
 const FILTERS: { value: GifSettings['filter']; label: string }[] = [
@@ -28,7 +30,7 @@ const REPEATS: { value: number; label: string; title: string }[] = [
 
 const TEXT_COLORS = ['#ffffff', '#ffd43b', '#111111', '#ff4d6d', '#4dabf7'];
 
-export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
+export function SettingsPanel({ settings: s, onChange, disabled, still = false }: Props) {
   const activePreset = PRESETS.find((p) => Object.entries(p.values).every(([k, v]) => s[k as keyof GifSettings] === v));
   const effects = [s.filter !== 'nenhum' && FILTERS.find((f) => f.value === s.filter)?.label, s.brightness !== 0 && 'brilho', s.contrast !== 0 && 'contraste'].filter(Boolean);
 
@@ -43,8 +45,8 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
           disabled={disabled}
           onChange={(v) => onChange({ output: v })}
           options={[
+            { value: 'sticker', label: 'Figurinha', title: 'Figurinha do WhatsApp (WebP 512×512)' },
             { value: 'gif', label: 'GIF' },
-            { value: 'sticker', label: 'Figurinha', title: 'Figurinha animada do WhatsApp (WebP 512×512)' },
           ]}
         />
         {sticker && (
@@ -65,8 +67,10 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
               ]}
             />
             <Hint>
-              Figurinha animada do WhatsApp: {STICKER.size}×{STICKER.size} px, até {STICKER.maxSeconds} s e {STICKER.maxBytes / 1024} KB. A
-              qualidade é ajustada sozinha para caber.
+              {still
+                ? `Figurinha estática do WhatsApp: ${STICKER.size}×${STICKER.size} px, até ${STICKER.maxStaticBytes / 1024} KB.`
+                : `Figurinha animada do WhatsApp: ${STICKER.size}×${STICKER.size} px, até ${STICKER.maxSeconds} s e ${STICKER.maxBytes / 1024} KB.`}{' '}
+              A qualidade é ajustada sozinha para caber.
             </Hint>
           </>
         )}
@@ -98,7 +102,7 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
       </div>
       )}
 
-      {sticker ? (
+      {sticker && still ? null : sticker ? (
         <Section title="Fluidez" summary={`${Math.min(s.fps, STICKER.maxFps)} quadros/s`} defaultOpen>
           <Segmented
             label="Quadros por segundo"
@@ -156,6 +160,7 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
       </>
       )}
 
+      {!still && (
       <Section title="Movimento" summary={`${String(s.speed).replace('.', ',')}×, ${s.direction === 'normal' ? 'normal' : s.direction === 'reverso' ? 'de trás para frente' : 'vai e volta'}${sticker ? '' : `, ${REPEATS.find((r) => r.value === s.repeat)?.label.toLowerCase()}`}`}>
         <Segmented
           label="Velocidade"
@@ -178,6 +183,7 @@ export function SettingsPanel({ settings: s, onChange, disabled }: Props) {
         {!sticker && <Segmented label="Repetição" value={s.repeat} disabled={disabled} onChange={(v) => onChange({ repeat: v })} options={REPEATS} />}
         <Hint>A prévia mostra a velocidade; a direção é aplicada ao gerar.{sticker ? ' Figurinhas sempre repetem.' : ''}</Hint>
       </Section>
+      )}
 
       <Section title="Efeitos" summary={effects.length ? effects.join(', ') : 'Nenhum efeito'}>
         <Segmented label="Filtro" value={s.filter} disabled={disabled} onChange={(v) => onChange({ filter: v })} options={FILTERS} columns={3} />

@@ -15,6 +15,8 @@ export interface GifItem {
   seconds: number;
   createdAt: number;
   kind: 'gif' | 'sticker';
+  /** false = figurinha/GIF de imagem parada */
+  animated?: boolean;
   /** figurinha que, mesmo no mínimo de qualidade, passou de 500 KB */
   overLimit?: boolean;
 }
@@ -65,7 +67,7 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
             <Stat label="Tamanho" value={formatBytes(item.blob.size)} />
             <Stat label="Dimensões" value={`${item.width} × ${item.height}`} />
             <Stat label="Quadros" value={String(item.frames)} />
-            <Stat label="Duração" value={`${item.seconds.toFixed(1).replace('.', ',')} s`} />
+            {item.animated !== false && <Stat label="Duração" value={`${item.seconds.toFixed(1).replace('.', ',')} s`} />}
           </dl>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -94,15 +96,17 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
         <div className={`text-sm px-4 py-3 rounded-lg border ${item.overLimit ? 'bg-danger/10 border-danger/30 text-danger' : 'bg-white border-line text-muted'}`}>
           {item.overLimit ? (
             <p>
-              <strong>Passou de {STICKER.maxBytes / 1024} KB</strong> mesmo na menor qualidade, e o WhatsApp recusa figurinhas maiores. Encurte o
-              trecho, use menos quadros por segundo ou tire a legenda e os efeitos.
+              <strong>Passou de {(item.animated === false ? STICKER.maxStaticBytes : STICKER.maxBytes) / 1024} KB</strong> mesmo na menor
+              qualidade, e o WhatsApp recusa figurinhas maiores.{' '}
+              {item.animated === false ? 'Tente outra imagem ou tire a legenda e os efeitos.' : 'Encurte o trecho, use menos quadros por segundo ou tire a legenda e os efeitos.'}
             </p>
           ) : (
             <>
               <p>
-                <strong className="text-ink">Como usar no WhatsApp:</strong> o criador de figurinhas do próprio WhatsApp só faz figurinhas
-                paradas. Para a animada, importe este arquivo num app de pacotes de figurinhas (como o Sticker.ly) e adicione o pacote ao
-                WhatsApp pelo botão <strong className="text-ink">+</strong> da bandeja de figurinhas.
+                <strong className="text-ink">Como usar no WhatsApp:</strong>{' '}
+                {item.animated === false
+                  ? 'importe este arquivo num app de pacotes de figurinhas (como o Sticker.ly) ou use a foto original no criador de figurinhas do próprio WhatsApp.'
+                  : 'o criador de figurinhas do próprio WhatsApp só faz figurinhas paradas. Para a animada, importe este arquivo num app de pacotes de figurinhas (como o Sticker.ly) e adicione o pacote ao WhatsApp pelo botão + da bandeja de figurinhas.'}
               </p>
               <p className="mt-1.5">Se o app escolhido não aceitar WebP, gere a versão GIF e use-a no lugar.</p>
             </>

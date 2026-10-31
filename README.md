@@ -1,23 +1,42 @@
-# Vídeo para GIF
+# Fábrica de Figurinhas
 
-Converta trechos de vídeo em GIFs animados **direto no navegador**. O vídeo não é enviado para nenhum servidor: tudo acontece no seu aparelho.
+Transforme **vídeo, GIF ou foto** em **figurinha do WhatsApp**, animada ou parada, direto no navegador. Também salva em GIF.
+Nada é enviado para servidores: tudo acontece no seu aparelho.
 
 **Usar agora:** https://guilhermecorrea77.github.io/video-to-gif-converter/
 
-## O que dá para fazer
+## O que entra
 
-- **Escolher o trecho** numa linha do tempo com miniaturas: arraste as alças, digite os tempos ou use os atalhos `I` (início) e `O` (fim).
-- **Prévia ao vivo** já com corte, filtros e legenda; `Espaço` toca o trecho em loop.
-- **Pontos de partida:** WhatsApp (leve), Equilibrado e Alta qualidade.
-- **Tamanho e fluidez:** largura de 240 a 800 px, de 8 a 25 quadros por segundo, de 32 a 256 cores.
-- **Enquadramento:** original, 1:1, 4:5, 9:16 (stories) ou 16:9, cortado a partir do centro.
-- **Movimento:** velocidade de 0,5× a 2×, ao contrário, vai e volta, e repetir sempre, 1 vez ou 3 vezes.
-- **Efeitos:** P&B, sépia, vibrante, retrô, negativo, brilho e contraste.
-- **Legenda** estilo meme, em cima ou embaixo, com tamanho e cor.
-- **Figurinha animada do WhatsApp:** salva em WebP 512 × 512, até 10 s e 500 KB (a qualidade é ajustada sozinha para caber), cortando em quadrado ou com o vídeo inteiro e sobras transparentes.
-- **Baixar ou compartilhar** (no celular abre a lista de apps, como o WhatsApp).
-- **Histórico da sessão** com os GIFs gerados, até fechar a aba.
-- Abrir o vídeo arrastando para a página ou colando com `Ctrl+V`.
+| Arquivo | Vira |
+|---|---|
+| Vídeo (MP4, MOV, WebM) | figurinha animada ou GIF, do trecho que você escolher |
+| GIF, WebP animado, PNG animado (APNG) | figurinha animada ou GIF, com corte, velocidade, legenda… |
+| Foto (JPG, PNG, WebP parado) | figurinha estática ou GIF de 1 quadro |
+
+## O que sai
+
+- **Figurinha animada:** WebP 512 × 512, até 10 s e 500 KB, como o WhatsApp exige. A qualidade é ajustada sozinha para caber.
+- **Figurinha estática:** WebP 512 × 512, até 100 KB.
+- **GIF:** largura de 240 a 800 px, de 8 a 25 quadros por segundo, de 32 a 256 cores.
+
+Para figurinha, escolha **Cortar** (preenche o quadrado) ou **Inteiro** (mostra tudo, com sobras transparentes).
+
+## Recursos
+
+- Linha do tempo com miniaturas e alças para escolher o trecho (atalhos `I`, `O` e `Espaço`).
+- Prévia ao vivo com corte, filtros e legenda.
+- Velocidade de 0,5× a 2×, reverso e vai e volta.
+- Filtros (P&B, sépia, vibrante, retrô, negativo), brilho e contraste.
+- Legenda estilo meme, em cima ou embaixo.
+- Histórico do que foi gerado na sessão.
+- Abrir arquivo arrastando para a página ou colando com `Ctrl+V`.
+- Funciona também dentro do Claude (o botão Baixar usa a confirmação de download de lá).
+
+## Figurinha no WhatsApp
+
+O criador de figurinhas do próprio WhatsApp só faz figurinhas paradas. Para a animada, importe o arquivo `.webp` num app de pacotes de figurinhas (como o Sticker.ly) e adicione o pacote ao WhatsApp pelo botão **+** da bandeja de figurinhas. Se o app não aceitar WebP, use a versão GIF.
+
+A figurinha (WebP) é gerada no Chrome, Edge e Firefox, no computador e no Android. O Safari do iPhone não gera WebP: lá o app começa em GIF e avisa.
 
 ## Rodar no computador
 
@@ -28,7 +47,7 @@ npm install
 npm run dev      # http://localhost:3000
 ```
 
-Gerar a versão de produção (pasta `dist/`):
+Versão de produção (pasta `dist/`):
 
 ```bash
 npm run build
@@ -42,9 +61,10 @@ Na primeira vez, ative em **Settings → Pages → Source: GitHub Actions**.
 
 ## Como funciona
 
-1. O vídeo é lido por um `<video>` local; cada quadro é buscado no tempo exato e desenhado num `<canvas>` com corte, filtros e legenda (`src/lib/render.ts`).
-2. Os pixels vão para um **Web Worker** (`src/workers/gif.worker.ts`) que reduz as cores e monta o GIF com [gifenc](https://github.com/mattdesl/gifenc). A tela continua respondendo e dá para cancelar.
-3. O tempo de cada quadro é arredondado sobre o tempo acumulado: a duração do GIF bate com a do trecho, sem acelerar nem atrasar.
+1. **Abrir:** vídeos são lidos por um `<video>` local. GIF/WebP/APNG são decodificados pelo `ImageDecoder` do navegador; onde ele não existe, GIFs são decodificados em JavaScript ([omggif](https://github.com/deanm/omggif)) (`src/lib/source.ts`).
+2. **Ler os quadros:** cada instante é desenhado num `<canvas>` com corte, filtros e legenda (`src/lib/render.ts`). No celular, se buscar um instante do vídeo não trouxer a imagem nova, o app toca o trecho e captura os quadros enquanto ele passa (`src/lib/convert.ts`).
+3. **GIF:** um Web Worker reduz as cores e monta o arquivo com [gifenc](https://github.com/mattdesl/gifenc) (`src/workers/gif.worker.ts`).
+4. **Figurinha:** cada quadro vira WebP pelo próprio navegador e os quadros são juntados num WebP animado (`src/lib/webp.ts`).
 
 ## Estrutura
 
@@ -55,24 +75,20 @@ src/
     DropZone.tsx          tela inicial
     Editor.tsx            prévia, reprodução e linha do tempo
     SettingsPanel.tsx     ajustes
-    Result.tsx            GIF pronto e histórico
+    Result.tsx            resultado e histórico
     ui.tsx                botões de escolha, sliders e seções
   lib/
-    convert.ts            leitura dos quadros (com plano B para celular), GIF e figurinha
-    webp.ts               montagem do WebP animado da figurinha
+    source.ts             abre vídeo, GIF, WebP/PNG animado ou foto
+    convert.ts            leitura dos quadros, GIF e figurinha
     render.ts             enquadramento, filtros e legenda
+    webp.ts               montagem do WebP animado
     settings.ts           ajustes, atalhos e limites
+    save.ts               baixar no navegador ou dentro do Claude
     format.ts             tamanhos, tempos e miniaturas
   workers/gif.worker.ts   codificação do GIF
 ```
 
-## Figurinha no WhatsApp
-
-O criador de figurinhas do próprio WhatsApp só faz figurinhas paradas. Para usar a figurinha animada, importe o arquivo `.webp` num app de pacotes de figurinhas (como o Sticker.ly) e adicione o pacote ao WhatsApp pelo botão **+** da bandeja de figurinhas. Se o app não aceitar WebP, use a versão GIF.
-
-A geração de WebP depende do navegador: funciona no Chrome, Edge e Firefox (computador e Android). O Safari do iPhone não gera WebP, então lá a opção avisa e sugere o GIF.
-
 ## Limites
 
-- Até 600 quadros por GIF (para não faltar memória no celular).
-- O formato do vídeo precisa ser aceito pelo navegador: MP4 (H.264) e WebM funcionam em quase todos; MOV do iPhone funciona no Safari.
+- Até 600 quadros por conversão (para não faltar memória no celular).
+- O vídeo precisa estar num formato que o navegador abre: MP4 (H.264) e WebM funcionam em quase todos; MOV do iPhone funciona no Safari.

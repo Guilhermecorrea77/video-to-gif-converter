@@ -29,7 +29,7 @@ export interface GifSettings {
 }
 
 export const DEFAULT_SETTINGS: GifSettings = {
-  output: 'gif',
+  output: 'sticker',
   stickerFit: 'cover',
   fps: 12,
   width: 480,
@@ -58,6 +58,8 @@ export const PRESETS: { id: string; label: string; hint: string; values: Partial
 export const STICKER = {
   size: 512,
   maxBytes: 500 * 1024,
+  /** figurinha parada (foto) */
+  maxStaticBytes: 100 * 1024,
   maxSeconds: 10,
   maxFps: 15,
 };
@@ -68,7 +70,8 @@ export const LIMITS = {
   maxSegmentSeconds: 60,
 };
 
-const KEY = 'video-to-gif:settings:v1';
+// v2: a figurinha virou a saída padrão
+const KEY = 'fabrica-figurinhas:settings:v2';
 
 export function loadSettings(): GifSettings {
   try {

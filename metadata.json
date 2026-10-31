@@ -1,5 +1,5 @@
 {
-  "name": "Vídeo para GIF",
-  "description": "Converta trechos de vídeo em GIFs animados direto no navegador, com corte, legenda, filtros, velocidade e vai e volta.",
+  "name": "Fábrica de Figurinhas",
+  "description": "Transforme vídeo, GIF ou foto em figurinha do WhatsApp (animada ou parada) ou em GIF, direto no navegador.",
   "requestFramePermissions": []
 }

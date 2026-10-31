@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Check, Download, PencilLine, Share2, Trash2 } from 'lucide-react';
 import { formatBytes } from '../lib/format';
 import { STICKER } from '../lib/settings';
+import { insideClaude, saveFile, type SaveOutcome } from '../lib/save';
 
 export interface GifItem {
   id: string;
@@ -22,6 +23,7 @@ const HEAVY = 8 * 1024 * 1024;
 const isTouch = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches;
 
 function canShareFiles(blob: Blob, name: string) {
+  if (insideClaude()) return false; // o frame do Claude bloqueia o compartilhamento
   try {
     const file = new File([blob], name, { type: blob.type });
     return typeof navigator.canShare === 'function' && navigator.canShare({ files: [file] });
@@ -34,6 +36,11 @@ function canShareFiles(blob: Blob, name: string) {
 export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) {
   const [shared, setShared] = useState(false);
   const shareable = canShareFiles(item.blob, item.fileName);
+  const [saveState, setSaveState] = useState<SaveOutcome | 'saving' | null>(null);
+  const save = async () => {
+    setSaveState('saving');
+    setSaveState(await saveFile(item.blob, item.fileName));
+  };
   const sticker = item.kind === 'sticker';
 
   const share = async () => {
@@ -62,9 +69,10 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
           </dl>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a href={item.url} download={item.fileName} className="btn btn-primary">
-            <Download className="w-4 h-4" aria-hidden /> {sticker ? 'Baixar figurinha' : 'Baixar GIF'}
-          </a>
+          <button type="button" onClick={save} disabled={saveState === 'saving'} className="btn btn-primary">
+            {saveState === 'saved' ? <Check className="w-4 h-4" aria-hidden /> : <Download className="w-4 h-4" aria-hidden />}{' '}
+            {sticker ? 'Baixar figurinha' : 'Baixar GIF'}
+          </button>
           {shareable && (
             <button type="button" onClick={share} className="btn btn-secondary">
               {shared ? <Check className="w-4 h-4" aria-hidden /> : <Share2 className="w-4 h-4" aria-hidden />} Compartilhar
@@ -75,6 +83,12 @@ export function Result({ item, onEdit }: { item: GifItem; onEdit: () => void }) 
           </button>
         </div>
       </div>
+
+      {saveState === 'unavailable' && (
+        <p role="alert" className="text-sm px-4 py-3 rounded-lg bg-danger/10 text-danger">
+          Este lugar não permite baixar arquivos. Para salvar, abra o conversor no navegador: guilhermecorrea77.github.io/video-to-gif-converter
+        </p>
+      )}
 
       {sticker && (
         <div className={`text-sm px-4 py-3 rounded-lg border ${item.overLimit ? 'bg-danger/10 border-danger/30 text-danger' : 'bg-white border-line text-muted'}`}>
@@ -140,9 +154,9 @@ export function History({ items, currentId, onOpen, onRemove }: { items: GifItem
                 <p className="text-xs font-semibold text-ink truncate" title={it.fileName}>{it.fileName}</p>
                 <p className="text-xs text-muted tabular-nums">{formatBytes(it.blob.size)}</p>
               </div>
-              <a href={it.url} download={it.fileName} className="icon-btn" aria-label={`Baixar ${it.fileName}`}>
+              <button type="button" onClick={() => saveFile(it.blob, it.fileName)} className="icon-btn" aria-label={`Baixar ${it.fileName}`}>
                 <Download className="w-4 h-4" aria-hidden />
-              </a>
+              </button>
               <button type="button" onClick={() => onRemove(it.id)} className="icon-btn hover:text-danger" aria-label={`Remover ${it.fileName}`}>
                 <Trash2 className="w-4 h-4" aria-hidden />
               </button>

@@ -206,7 +206,7 @@ export default function App() {
     <div className="min-h-dvh flex flex-col">
       <a href="#conteudo" className="skip-link">Pular para o conteúdo</a>
 
-      <header className="border-b border-line bg-white/70 backdrop-blur sticky top-0 z-30">
+      <header className="border-b border-line bg-white/70 backdrop-blur sticky top-0 z-30" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-3">
           <button type="button" onClick={() => !busy && setSource(null)} className="flex items-center gap-2 font-display font-bold text-ink text-lg" aria-label="Vídeo para GIF — início">
             <span className="w-8 h-8 rounded-lg bg-ink grid place-items-center">
@@ -251,7 +251,7 @@ export default function App() {
               )}
 
               {view === 'result' && current ? (
-                <Result item={current} onEdit={() => setView('edit')} />
+                <Result key={current.id} item={current} onEdit={() => setView('edit')} />
               ) : (
                 <Editor
                   url={source.url}
